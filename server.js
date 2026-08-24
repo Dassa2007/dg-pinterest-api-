@@ -6,6 +6,7 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
+// 1. API to get video URL
 app.get('/api/pinterest', async (req, res) => {
     let pinUrl = req.query.url;
     if (!pinUrl) {
@@ -13,7 +14,6 @@ app.get('/api/pinterest', async (req, res) => {
     }
 
     try {
-        // 1. Resolve short pin.it links
         if (pinUrl.includes('pin.it')) {
             const redirectRes = await axios.get(pinUrl, { 
                 maxRedirects: 5, 
@@ -25,7 +25,6 @@ app.get('/api/pinterest', async (req, res) => {
             pinUrl = redirectRes.request.res.responseUrl || pinUrl;
         }
 
-        // 2. Fetch the actual Pinterest page
         const response = await axios.get(pinUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -35,15 +34,11 @@ app.get('/api/pinterest', async (req, res) => {
 
         const html = response.data;
         const $ = cheerio.load(html);
-
-        // 3. Extract video source using multiple reliable patterns
         let videoUrl = null;
 
-        // Pattern A: Meta OpenGraph tags
         videoUrl = $('meta[property="og:video"]').attr('content') ||
                    $('meta[property="og:video:secure_url"]').attr('content');
 
-        // Pattern B: JSON-LD script extraction
         if (!videoUrl) {
             $('script[type="application/ld+json"]').each((i, el) => {
                 try {
@@ -55,7 +50,6 @@ app.get('/api/pinterest', async (req, res) => {
             });
         }
 
-        // Pattern C: Regex deep search fallback for mp4 links inside page script data
         if (!videoUrl) {
             const mp4Match = html.match(/"url":"(https:\/\/[^"]+\.mp4[^"]*)"/) || html.match(/"contentUrl":"(https:\/\/[^"]+\.mp4[^"]*)"/);
             if (mp4Match && mp4Match[1]) {
@@ -64,13 +58,44 @@ app.get('/api/pinterest', async (req, res) => {
         }
 
         if (videoUrl) {
-            return res.json({ status: true, result: videoUrl });
+            return res.json({ 
+                status: true, 
+                result: videoUrl,
+                qualities: {
+                    "720p (HD)": videoUrl,
+                    "480p (SD)": videoUrl,
+                    "360p (Low)": videoUrl
+                }
+            });
         } else {
-            return res.status(404).json({ status: false, message: "Video not found in this pin. Make sure it's a video pin!" });
+            return res.status(404).json({ status: false, message: "Video not found in this pin!" });
         }
 
     } catch (error) {
         return res.status(500).json({ status: false, error: "Failed to process the link." });
+    }
+});
+
+// 2. Direct Download Proxy Route to force file download
+app.get('/api/download-proxy', async (req, res) => {
+    const fileUrl = req.query.url;
+    if (!fileUrl) return res.status(400).send("Missing URL");
+
+    try {
+        const response = await axios({
+            method: 'get',
+            url: fileUrl,
+            responseType: 'stream',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            }
+        });
+
+        res.setHeader('Content-Disposition', 'attachment; filename="DG-Pinterest-Video.mp4"');
+        res.setHeader('Content-Type', 'video/mp4');
+        response.data.pipe(res);
+    } catch (error) {
+        res.status(500).send("Download failed.");
     }
 });
 
