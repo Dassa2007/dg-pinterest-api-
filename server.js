@@ -12,13 +12,15 @@ app.get('/api/pinterest', async (req, res) => {
     }
 
     try {
-        // Using robust Cobalt API backend integration
-        const response = await axios.post("https://api.cobalt.tools/api/json", {
-            url: pinUrl
+        // Requesting via a reliable cobalt public instance with proper headers
+        const response = await axios.post("https://co.wuk.sh/api/json", {
+            url: pinUrl,
+            vQuality: "720"
         }, {
             headers: {
                 "Accept": "application/json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
         });
 
@@ -35,6 +37,7 @@ app.get('/api/pinterest', async (req, res) => {
             return res.status(404).json({ status: false, message: "Video not found in this link!" });
         }
     } catch (error) {
+        console.error(error.message);
         return res.status(500).json({ status: false, error: "Failed to fetch video data." });
     }
 });
