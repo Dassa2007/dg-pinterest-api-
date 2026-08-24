@@ -1,6 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const cors = require('cors');
 
 const app = express();
@@ -13,29 +12,30 @@ app.get('/api/pinterest', async (req, res) => {
     }
 
     try {
-        let targetUrl = pinUrl;
-        if (pinUrl.includes('pin.it')) {
-            const redirectRes = await axios.get(pinUrl, { maxRedirects: 5, validateStatus: (status) => status < 400 });
-            targetUrl = redirectRes.request.res.responseUrl || pinUrl;
-        }
-
-        const response = await axios.get(targetUrl, {
+        // Using robust Cobalt API backend integration
+        const response = await axios.post("https://api.cobalt.tools/api/json", {
+            url: pinUrl
+        }, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                "Accept": "application/json",
+                "Content-Type": "application/json"
             }
         });
 
-        const $ = cheerio.load(response.data);
-        let videoUrl = $('meta[property="og:video"]').attr('content') ||
-                       $('meta[property="og:video:secure_url"]').attr('content');
+        const data = response.data;
+        let videoUrl = data.url;
+
+        if (!videoUrl && data.picker && data.picker.length > 0) {
+            videoUrl = data.picker[0].url;
+        }
 
         if (videoUrl) {
             return res.json({ status: true, result: videoUrl });
         } else {
-            return res.status(404).json({ status: false, message: "Video not found!" });
+            return res.status(404).json({ status: false, message: "Video not found in this link!" });
         }
     } catch (error) {
-        return res.status(500).json({ status: false, error: "Failed to fetch video." });
+        return res.status(500).json({ status: false, error: "Failed to fetch video data." });
     }
 });
 
