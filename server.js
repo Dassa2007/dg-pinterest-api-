@@ -6,7 +6,6 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-// 1. API to get video URL
 app.get('/api/pinterest', async (req, res) => {
     let pinUrl = req.query.url;
     if (!pinUrl) {
@@ -34,41 +33,38 @@ app.get('/api/pinterest', async (req, res) => {
 
         const html = response.data;
         const $ = cheerio.load(html);
-        let videoUrl = null;
+        
+        let qualities = {};
 
-        videoUrl = $('meta[property="og:video"]').attr('content') ||
-                   $('meta[property="og:video:secure_url"]').attr('content');
-
-        if (!videoUrl) {
-            $('script[type="application/ld+json"]').each((i, el) => {
-                try {
-                    const json = JSON.parse($(el).html());
-                    if (json && json.contentUrl) {
-                        videoUrl = json.contentUrl;
-                    }
-                } catch (e) {}
+        // Search for all mp4 links inside the page to capture different resolutions if available
+        const mp4Matches = html.match(/"url":"(https:\/\/[^"]+\.mp4[^"]*)"/g);
+        if (mp4Matches && mp4Matches.length > 0) {
+            let uniqueLinks = [...new Set(mp4Matches.map(m => m.match(/"url":"([^"]+)"/)[1].replace(/\\u002F/g, '/')))];
+            
+            // Assign available links to respective qualities
+            let labels = ["1080p (FHD)", "720p (HD)", "480p (SD)", "360p (Low)"];
+            uniqueLinks.forEach((link, index) => {
+                let label = labels[index] || `Quality ${index + 1}`;
+                qualities[label] = link;
             });
         }
 
-        if (!videoUrl) {
-            const mp4Match = html.match(/"url":"(https:\/\/[^"]+\.mp4[^"]*)"/) || html.match(/"contentUrl":"(https:\/\/[^"]+\.mp4[^"]*)"/);
-            if (mp4Match && mp4Match[1]) {
-                videoUrl = mp4Match[1].replace(/\\u002F/g, '/');
+        // Fallback to og:video if regex didn't catch multiple
+        if (Object.keys(qualities).length === 0) {
+            let defaultVideo = $('meta[property="og:video"]').attr('content') ||
+                               $('meta[property="og:video:secure_url"]').attr('content');
+            if (defaultVideo) {
+                qualities["720p (HD)"] = defaultVideo;
             }
         }
 
-        if (videoUrl) {
+        if (Object.keys(qualities).length > 0) {
             return res.json({ 
                 status: true, 
-                result: videoUrl,
-                qualities: {
-                    "720p (HD)": videoUrl,
-                    "480p (SD)": videoUrl,
-                    "360p (Low)": videoUrl
-                }
+                qualities: qualities
             });
         } else {
-            return res.status(404).json({ status: false, message: "Video not found in this pin!" });
+            return res.status(404).json({ status: false, message: "Video qualities not found in this pin!" });
         }
 
     } catch (error) {
@@ -76,7 +72,7 @@ app.get('/api/pinterest', async (req, res) => {
     }
 });
 
-// 2. Direct Download Proxy Route to force file download
+// Direct Download Proxy
 app.get('/api/download-proxy', async (req, res) => {
     const fileUrl = req.query.url;
     if (!fileUrl) return res.status(400).send("Missing URL");
